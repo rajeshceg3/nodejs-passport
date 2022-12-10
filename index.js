@@ -1,14 +1,30 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
+const passport = require('passport');
+const JwtStrategy = require('passport-jwt').Strategy;
 const app = express();
-const port = 3010;
-const path = require('path');
+const PORT = 3000;
+
+const jwtStrategy = new JwtStrategy({
+ jwtFromRequest : req => req.headers.authorization,
+ secretOrKey : 'jwt-secret'},
+(jwtPaylod, done) => {
+  return done( null,
+    {
+      email : jwtPaylod.email,
+      name :  jwtPaylod.name,
+    })
+}
+)
+
+passport.use(jwtStrategy);
 
 app.use(express.static('static'));
 
 app.get('/', (req, res) => {
-  res.sendFile(path.resolve('pages/index.html'));
+
 });
 
-app.listen(port, () => {
-  console.log(`Example app listening at http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`Example app listening at http://localhost:${PORT}`);
 });
