@@ -21,7 +21,7 @@ app.use(session({
 const jwtStrategy = new JwtStrategy(
   {
     jwtFromRequest: (req) => req.headers.authorization,
-    secretOrKey: 'jwt-secret',
+    secretOrKey: jwtSecret,
   },
   (jwtPaylod, done) => {
     return done(null, {
@@ -65,12 +65,12 @@ app.get('/login', (req, res) => {
       },
       jwtSecret
     );
-
     return res.json({ jwt });
   }
-
   res.status(401).send('Invalid Credentials');
 });
+
+
 
 // Use Passport for authentication
 app.get('/', passport.authenticate('jwt', { session: false }), (req, res) => {
