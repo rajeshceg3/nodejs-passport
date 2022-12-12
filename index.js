@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const passport = require('passport');
+const session = require('express-session')
 const JwtStrategy = require('passport-jwt').Strategy;
 const app = express();
 const PORT = 3000;
@@ -29,7 +30,7 @@ function getUserDetails(email){
 function credentialsValid( email, password){
   if ( !users.has(email)){
     res.status(401).send(`Email ${email} is not registered`);
-    return;
+    return false;
   }
   const userdetails = getUserDetails(email);
   return bcrypt.compareSync(password, userdetails.password);
@@ -60,6 +61,8 @@ app.get("/login", (req,res)=>{
 
 // Use Passport for authentication
 app.get('/', passport.authenticate('jwt', {session: false}), (req, res) => {
+  // If Authentication is successful we will have access to
+  // req.user object
   res.send(`Hi ${req.user.email}`);
 });
 
