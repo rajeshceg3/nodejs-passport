@@ -4,6 +4,7 @@ const bodyParser = require('body-parser')
 const passport = require('passport');
 const session = require('express-session');
 const JwtStrategy = require('passport-jwt').Strategy;
+const bcrypt = require('bcryptjs');
 const PORT = 3000;
 const jwtSecret = 'secret-key';
 // Set up a temporary store for user data
@@ -35,19 +36,6 @@ passport.use(jwtStrategy);
 app.use(passport.initialize());
 app.use(passport.session());
 
-function getUserDetails(email) {
-  return users.get(email);
-}
-
-function credentialsValid(email, password, res) {
-  if (!users.has(email)) {
-    res.status(401).send(`Email ${email} is not registered`);
-    return;
-  }
-  const userdetails = getUserDetails(email);
-  return bcrypt.compareSync(password, userdetails.password);
-}
-
 passport.serializeUser((user, done) => {
   done(null, user.email);
 });
@@ -56,29 +44,98 @@ passport.deserializeUser((email, done) => {
   return done(null, getUserDetails(email));
 });
 
+// Collect username and password and validate it
 app.get('/login', (req, res) => {
-  if (credentialsValid(req.body.email, req.body.password, res)) {
-    // Create and provide jwt to user
-    const jwt = jwt.sign(
-      {
-        email: req.body.email,
-      },
-      jwtSecret
-    );
-    return res.json({ jwt });
-  }
-  res.status(401).send('Invalid Credentials');
+  res.send(`
+    <h1>Super Fast chat </h1>
+    <form action="/loginAPI" method="post">
+      <input type="text" name="username" placeholder="Username" required />
+      <input type="password" name="password" placeholder="Password" required />
+      <button type="submit">Login</button>
+    </form>
+  `);
 });
 
+// Provide a form for user registration 
+app.get('/register', (req, res) => {
+  res.send(`
+    <h1>Super Fast chat </h1>
+    <form action="/registerAPI" method="post">
+      <input type="text" name="username" placeholder="Username" required />
+      <input type="password" name="password" placeholder="Password" required />
+      <button type="submit">Create Account</button>
+    </form>
+  `);
+});
+
+app.post('/registerAPI',(req,res)=>{
+
+  const username = req.body.username;
+  const password = req.body.password;
+
+  if(users.has(username)){
+    res.status(409).send("Provided username is already taken");
+    return;
+  }
+
+  bcrypt.hash(password, 10, ( err, hash)=>{
+    if( err ){
+      res.status(500).send("Issue with hashing the password");
+      return;
+    }
+
+    users.set(username, {
+      username: username,
+      password: hash
+    });
+
+    res.send("User Registration is Successful");
+
+  })
+})
+
+function getUserDetails(username){
+  return users.get(username);
+}
+
+function credentialsvalid(username, password,res){
+  if ( !users.has(username)){
+    res.status(401).send(`User ${username} is not registered`);
+    return;
+  }
+
+  // Get the stored details, in prod it will be read from db 
+  const userdetails = getUserDetails(username);
+  return bcrypt.compareSync(password, userdetails.password);
+}
+
+
+app.post('/loginAPI',(req,res)=>{
+  if(!credentialsvalid(req.body.username, req.body.password,res)){
+    res.json({
+      success: false,
+      message : " Incorrect credentials"
+    })
+  }
+  else{
+    const token = jwt.sign({username:getUserDetails(req.body.username).username}, jwtSecret);
+    req.session.token = token;
+    res.json({
+      success: true,
+      token : token
+    }); 
+  }
+  })
 
 
 // Use Passport for authentication
-app.get('/', passport.authenticate('jwt', { session: false }), (req, res) => {
+app.get('/protected', passport.authenticate('jwt', { session: false }), (req, res) => {
   // If Authentication is successful, content from Jwt claims will be 
   // available in req.user property
-  res.send(`Hi ${req.user.email}`);
+  console.log("Received correct token, allowing user to the route")
+  res.send(`Hi ${req.user.username}`);
 });
 
 app.listen(PORT, () => {
-  console.log(`Example app listening at http://localhost:${PORT}`);
+  console.log(`Example app listening at PORT ${PORT}`);
 });
