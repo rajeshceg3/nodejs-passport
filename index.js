@@ -8,7 +8,6 @@ const ExtractJwt = require('passport-jwt').ExtractJwt;
 const bcrypt = require('bcryptjs');
 const http = require('http');
 const { Server } = require("socket.io");
-const passportSocketIo = require("passport.socketio");
 
 const PORT = 3000;
 const jwtSecret = 'secret-key';
@@ -107,20 +106,24 @@ function getUserDetails(username){
   return users.get(username);
 }
 
-function credentialsvalid(username, password,res){
+function credentialsvalid(username, password){
   if ( !users.has(username)){
-    res.status(401).send(`User ${username} is not registered`);
-    return;
+    return 'unregistered';
   }
 
   // Get the stored details, in prod it will be read from db 
   const userdetails = getUserDetails(username);
-  return bcrypt.compareSync(password, userdetails.password);
+  return bcrypt.compareSync(password, userdetails.password) ? 'ok' : 'bad-password';
 }
 
 
 app.post('/loginAPI',(req,res)=>{
-  if(!credentialsvalid(req.body.username, req.body.password,res)){
+  const verdict = credentialsvalid(req.body.username, req.body.password);
+  if(verdict === 'unregistered'){
+    res.status(401).send(`User ${req.body.username} is not registered`);
+    return;
+  }
+  if(verdict !== 'ok'){
     res.json({
       success: false,
       message : " Incorrect credentials"
@@ -141,6 +144,14 @@ app.post('/loginAPI',(req,res)=>{
 
 app.use('/static', express.static('static'));
 
+// The chat page is a static shell; the sensitive surface is the socket,
+// which is JWT-gated below. Gating the page itself broke the real browser
+// journey: after login the token lives in localStorage and a navigation
+// sends no Authorization header, so users landed on 401.
+app.get('/chat', (req, res) => {
+  res.sendFile(__dirname + '/pages/chat.html');
+});
+
 // Use Passport for authentication to a protected route
 app.get('/protected', passport.authenticate('jwt', { session: false }), (req, res) => {
   // If Authentication is successful, content from Jwt claims will be 
@@ -150,29 +161,27 @@ app.get('/protected', passport.authenticate('jwt', { session: false }), (req, re
 
 });
 
-app.get('/chat', passport.authenticate('jwt', { session: false }), (req, res) => {
-  res.sendFile(__dirname + '/pages/chat.html');
-});
-
 app.get('/', (req, res) => {
   res.redirect('/login');
 });
 
-io.use(passportSocketIo.authorize({
-  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-  secret: jwtSecret,
-  passport: passport,
-  cookieParser: require('cookie-parser'),
-  key: 'connect.sid',
-  success: (data, accept) => {
-    console.log('successful authentication');
-    accept(null, true);
-  },
-  fail: (data, message, error, accept) => {
-    console.log('failed authentication:', message);
-    accept(null, false);
+// Gate the socket with the same JWT the API uses. passport.socketio was
+// wired with options it does not support and no session store, so every
+// connection crashed the process; it is removed.
+io.use((socket, next) => {
+  const raw = socket.handshake.auth && socket.handshake.auth.token;
+  const token = raw && raw.replace(/^Bearer\s+/i, '');
+  if (!token) {
+    return next(new Error('unauthorized'));
   }
-}));
+  jwt.verify(token, jwtSecret, (err, payload) => {
+    if (err) {
+      return next(new Error('unauthorized'));
+    }
+    socket.request.user = { username: payload.username };
+    next();
+  });
+});
 
 io.on('connection', (socket) => {
   console.log('a user connected');
